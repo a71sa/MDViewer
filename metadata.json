@@ -1,0 +1,6 @@
+{
+  "name": "Markdown Document Viewer",
+  "description": "A robust, offline-capable Markdown reader supporting folder browsing, link cross-referencing, full-text search, outline view, and interactive Mermaid diagrams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
