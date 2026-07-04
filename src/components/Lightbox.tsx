@@ -7,6 +7,18 @@ import React, { useState, useEffect, useRef } from "react";
 import mermaid from "mermaid";
 import { ZoomIn, ZoomOut, RotateCcw, X, Move, Sun, Moon } from "lucide-react";
 
+// Helper to decode HTML entities for mermaid rendering
+function decodeHtmlEntities(text: string): string {
+  if (typeof document === "undefined") return text;
+  const doc = new DOMParser().parseFromString(text, "text/html");
+  let decoded = doc.documentElement.textContent || text;
+  if (decoded.includes("&")) {
+    const doc2 = new DOMParser().parseFromString(decoded, "text/html");
+    decoded = doc2.documentElement.textContent || decoded;
+  }
+  return decoded;
+}
+
 interface LightboxProps {
   code: string;
   onClose: () => void;
@@ -28,7 +40,8 @@ export default function Lightbox({ code, onClose }: LightboxProps) {
     const renderDiagram = async () => {
       const uniqueId = `mermaid-lightbox-${Math.floor(Math.random() * 100000)}`;
       try {
-        const { svg } = await mermaid.render(uniqueId, code);
+        const decodedCode = decodeHtmlEntities(code);
+        const { svg } = await mermaid.render(uniqueId, decodedCode);
         if (active) {
           setSvgHtml(svg);
           setError("");

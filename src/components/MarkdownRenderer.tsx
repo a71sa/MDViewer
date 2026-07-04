@@ -19,6 +19,18 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#039;");
 }
 
+// Helper to decode HTML entities for mermaid rendering
+function decodeHtmlEntities(text: string): string {
+  if (typeof document === "undefined") return text;
+  const doc = new DOMParser().parseFromString(text, "text/html");
+  let decoded = doc.documentElement.textContent || text;
+  if (decoded.includes("&")) {
+    const doc2 = new DOMParser().parseFromString(decoded, "text/html");
+    decoded = doc2.documentElement.textContent || decoded;
+  }
+  return decoded;
+}
+
 interface MarkdownRendererProps {
   content: string;
   onNavigate: (relativePath: string) => void;
@@ -163,43 +175,68 @@ export default function MarkdownRenderer({
     marked.use({ renderer: customRenderer as any });
   }, [customRenderer]);
 
-  // Pre-process math (LaTeX) equations using KaTeX prior to running through marked
+  // Pre-process math (LaTeX) equations using KaTeX prior to running through marked,
+  // making sure to skip any math-like structures inside code blocks or inline code.
   const preProcessedContent = useMemo(() => {
     if (!content) return "";
-    let result = content;
 
-    // A. Parse and render block equations: $$ math $$
-    result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
-      try {
-        const rendered = katex.renderToString(formula.trim(), {
-          displayMode: true,
-          throwOnError: false,
-          output: "htmlAndMathml"
-        });
-        return `<div class="katex-block-wrapper my-6 py-2 overflow-x-auto text-center">${rendered}</div>`;
-      } catch (err) {
-        console.warn("KaTeX Block render error:", err);
-        return `<div class="text-red-500 font-mono text-xs p-2 bg-red-50 border border-red-100 my-2 rounded">Math Error: ${escapeHtml(formula)}</div>`;
+    // Split by code blocks first
+    const blocks = content.split(/(```[\s\S]*?```)/g);
+
+    return blocks.map((block) => {
+      // If this block starts with code block backticks, return it as-is
+      if (block.startsWith("```")) {
+        return block;
       }
-    });
 
-    // B. Parse and render inline equations: $ math $
-    // Lookbehind to prevent matching escaping backslashes, lookahead to guarantee matches
-    result = result.replace(/(?<!\\)\$((?:\\\$|[^$])+?)(?<!\\)\$/g, (_, formula) => {
-      try {
-        const cleanFormula = formula.replace(/\\\$/g, "$");
-        return katex.renderToString(cleanFormula.trim(), {
-          displayMode: false,
-          throwOnError: false,
-          output: "htmlAndMathml"
+      // Otherwise, it's normal text. Now split it by inline code blocks to avoid rendering math inside `$...`
+      const inlineSegments = block.split(/(`[^`\n]+?`)/g);
+
+      const processedSegments = inlineSegments.map((segment) => {
+        if (segment.startsWith("`") && segment.endsWith("`")) {
+          return segment;
+        }
+
+        // Apply KaTeX rendering only to non-code segment
+        let result = segment;
+
+        // 1. Block equations: $$ math $$
+        result = result.replace(/\$\$([\s\S]+?)\$\$/g, (_, formula) => {
+          try {
+            const rendered = katex.renderToString(formula.trim(), {
+              displayMode: true,
+              throwOnError: false,
+              output: "htmlAndMathml",
+              strict: "ignore"
+            });
+            return `<div class="katex-block-wrapper my-6 py-2 overflow-x-auto text-center">${rendered}</div>`;
+          } catch (err) {
+            console.warn("KaTeX Block render error:", err);
+            return `<div class="text-red-500 font-mono text-xs p-2 bg-red-50 border border-red-100 my-2 rounded">Math Error: ${escapeHtml(formula)}</div>`;
+          }
         });
-      } catch (err) {
-        console.warn("KaTeX Inline render error:", err);
-        return `<span class="text-red-500 font-mono text-[10px]">Math Error</span>`;
-      }
-    });
 
-    return result;
+        // 2. Inline equations: $ math $
+        result = result.replace(/(?<!\\)\$((?:\\\$|[^$])+?)(?<!\\)\$/g, (_, formula) => {
+          try {
+            const cleanFormula = formula.replace(/\\\$/g, "$");
+            return katex.renderToString(cleanFormula.trim(), {
+              displayMode: false,
+              throwOnError: false,
+              output: "htmlAndMathml",
+              strict: "ignore"
+            });
+          } catch (err) {
+            console.warn("KaTeX Inline render error:", err);
+            return `<span class="text-red-500 font-mono text-[10px]">Math Error</span>`;
+          }
+        });
+
+        return result;
+      });
+
+      return processedSegments.join("");
+    }).join("");
   }, [content]);
 
   // Parse HTML content synchronously using marked
@@ -288,10 +325,15 @@ export default function MarkdownRenderer({
     });
 
     containers.forEach(async (container, index) => {
+      // Avoid re-compilation if already rendered
+      if (container.querySelector("svg") || container.querySelector(".text-red-400")) {
+        return;
+      }
+
       const encodedCode = container.getAttribute("data-code");
       if (!encodedCode) return;
 
-      const code = decodeURIComponent(encodedCode);
+      const code = decodeHtmlEntities(decodeURIComponent(encodedCode));
       const uniqueId = `mermaid-chart-${index}-${Math.floor(Math.random() * 100000)}`;
 
       // Show loader
@@ -355,13 +397,18 @@ export default function MarkdownRenderer({
         }
       });
     };
-  }, [parsedHtml, onMermaidClick]);
+  }, [parsedHtml, onMermaidClick, fontSizeClass]);
+
+  // Memoize dangerouslySetInnerHTML to prevent React from resetting raw HTML on parent/style re-renders
+  const memoizedInnerHTML = useMemo(() => {
+    return { __html: parsedHtml };
+  }, [parsedHtml]);
 
   return (
     <div
       onClick={handleContainerClick}
       className={`markdown-body prose max-w-none text-white/80 leading-relaxed selection:bg-indigo-500/30 selection:text-indigo-100 ${fontSizeClass}`}
-      dangerouslySetInnerHTML={{ __html: parsedHtml }}
+      dangerouslySetInnerHTML={memoizedInnerHTML}
     />
   );
 }

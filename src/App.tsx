@@ -237,7 +237,15 @@ export default function App() {
     } catch (err: any) {
       if (err.name !== "AbortError") {
         console.error("Failed to select local folder:", err);
-        alert(`Folder Selection Failed: ${err.message || err}`);
+        if (err.name === "SecurityError" || (err.message && err.message.toLowerCase().includes("sub frame"))) {
+          alert(
+            "Local folder access is blocked inside this preview frame due to browser security restrictions.\n\n" +
+            "To open a local folder directly, please click the 'Open in new tab' button at the top right of the screen, " +
+            "or use the 'Select Folder (Fallback)' upload button in the sidebar to load your local folder contents."
+          );
+        } else {
+          alert(`Folder Selection Failed: ${err.message || err}`);
+        }
       }
     } finally {
       setIsLoadingFile(false);
